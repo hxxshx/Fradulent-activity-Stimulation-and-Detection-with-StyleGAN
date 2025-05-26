@@ -1,0 +1,165 @@
+#include necessary ;ibraries
+pip install transformers datasets torch pandas tqdm
+
+#load the dataset
+import pandas as pd
+
+file_path = "/content/drive/MyDrive/Cleaned_mail/cleaned_smail.csv"
+df = pd.read_csv(file_path)
+print(df.head())
+email_texts = df["Cleaned Email Text"].dropna().tolist()
+
+#preprocessing and tokenization
+from transformers import GPT2Tokenizer
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token 
+tokenized_texts = tokenizer(email_texts, truncation=True, padding=True, max_length=512, return_tensors="pt")
+
+print("Tokenization successful!")
+
+#train the model
+from transformers import GPT2LMHeadModel, Trainer, TrainingArguments, DataCollatorForLanguageModeling
+from datasets import Dataset
+from sklearn.model_selection import train_test_split
+dataset = Dataset.from_dict({"text": email_texts})
+
+train_texts, eval_texts = train_test_split(email_texts, test_size=0.1, random_state=42)
+
+train_dataset = Dataset.from_dict({"text": train_texts})
+eval_dataset = Dataset.from_dict({"text": eval_texts})
+def tokenize_function(examples):
+    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=512)
+
+tokenized_train_dataset = train_dataset.map(tokenize_function, batched=True)
+tokenized_eval_dataset = eval_dataset.map(tokenize_function, batched=True)
+
+
+model = GPT2LMHeadModel.from_pretrained("gpt2")
+
+
+training_args = TrainingArguments(
+    output_dir="./results",
+    evaluation_strategy="epoch", 
+    save_strategy="epoch",
+    per_device_train_batch_size=2,
+    per_device_eval_batch_size=2,
+    num_train_epochs=3,
+    logging_dir="./logs",
+    logging_steps=10
+)
+
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=False 
+)
+
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_train_dataset,
+    eval_dataset=tokenized_eval_dataset, 
+    data_collator=data_collator
+)
+
+trainer.train()
+
+#generate phishing mails
+from transformers import GPT2LMHeadModel, GPT2Tokenizer, pipeline
+import pandas as pd
+import os
+
+
+model_path = "./fine_tuned_gpt_model"
+tokenizer_path = "./fine_tuned_gpt_tokenizer"
+
+if not os.path.exists(model_path):
+    raise ValueError(f"Model path '{model_path}' does not exist. Please check the path.")
+
+if not os.path.exists(tokenizer_path):
+    raise ValueError(f"Tokenizer path '{tokenizer_path}' does not exist. Please check the path.")
+
+
+try:
+    model = GPT2LMHeadModel.from_pretrained(model_path)
+    tokenizer = GPT2Tokenizer.from_pretrained(tokenizer_path)
+except Exception as e:
+    raise RuntimeError(f"Error loading model/tokenizer: {e}")
+
+generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+
+# Prompts for phishing messages
+prompts = ["Your account has been temporarily suspended due to suspicious activity, verify your details now.",
+    "We detected an unauthorized login attempt on your account, secure it immediately to prevent fraud.",
+    "Your payment was unsuccessful, update your billing information to avoid service interruption.",
+    "Urgent security alert, your account is at risk, click the link to verify your identity.",
+    "Your email storage is full, upgrade now to continue receiving important messages.",
+    "Congratulations, you have won an exclusive prize, claim it before it expires.",
+    "Your bank account is locked due to unusual transactions, verify now to restore access.",
+    "Your subscription is expiring soon, renew today to avoid losing premium benefits.",
+    "We noticed suspicious activity on your card, confirm your details to prevent unauthorized charges.",
+    "Your cloud storage is at full capacity, upgrade your plan to continue saving files.",
+    "Action required, verify your account to prevent deactivation due to security concerns.",
+    "Your recent order could not be processed, update your payment details to complete the transaction.",
+    "Your online banking access has been restricted, confirm your credentials to restore full functionality.",
+    "Your password has been reset successfully, if this wasn't you, secure your account immediately.",
+    "Your social media account was accessed from a new location, confirm if it was you.",
+    "Your phone bill is overdue, pay now to avoid service disruption.",
+    "Your email verification is pending, complete it now to continue using our services.",
+    "Urgent alert, your tax refund is ready to be claimed, verify your details before it expires.",
+    "Your mobile service provider detected unusual charges, confirm them to avoid account suspension.",
+    "A new message from customer support is waiting for you, click the link to view it.",
+    "Your antivirus subscription has expired, renew now to stay protected from online threats.",
+    "Your internet provider requires an urgent update on your billing details, verify now.",
+    "We have detected multiple failed login attempts, secure your account immediately.",
+    "Your membership renewal is due, confirm your payment details to maintain your benefits.",
+    "A package is on hold due to an incorrect address, update your shipping details now.",
+    "Your electricity bill is overdue, settle it now to avoid service disconnection.",
+    "Your medical insurance needs renewal, act now to ensure continuous coverage.",
+    "Your recent booking has been modified, check the updated details immediately.",
+    "Your online banking session has expired, log in now to avoid account suspension.",
+    "A refund has been issued to your account, verify your details to receive the amount.",
+    "Your social security benefits are temporarily on hold, update your information to continue receiving them.",
+    "An important security patch is available for your account, install it now.",
+    "Your online wallet balance is running low, top up now to continue transactions.",
+    "A new voicemail from an unknown number is waiting, click to listen now.",
+    "Your credit score has been updated, view the report now for the latest changes.",
+    "Your subscription auto-renewal failed, update your payment details to continue uninterrupted service.",
+    "A suspicious transaction was detected, verify if this purchase was made by you.",
+    "Your government benefits application is incomplete, submit missing documents to avoid rejection.",
+    "Your email has been flagged for suspicious activity, verify now to prevent account suspension.",
+    "Your tax filing requires additional verification, update your details to avoid penalties.",
+    "Your property tax bill is due soon, settle the payment to avoid extra charges.",
+    "Your airline reservation has been modified, check the updated details immediately.",
+    "Your lottery prize is waiting, claim it before the deadline expires.",
+    "Your student loan payment is due, submit the payment to avoid late fees.",
+]
+# Generate phishing mails
+generated_mails = []
+
+for prompt in prompts:
+    try:
+        output = generator(prompt, max_length=50, truncation=True)
+        generated_text = output[0]['generated_text']
+        generated_mails.append({'prompt': prompt, 'generated_text': generated_text})
+    except Exception as e:
+        print(f"Error generating text for prompt '{prompt}': {e}")
+
+# Convert to DataFrame
+df = pd.DataFrame(generated_mails)
+
+# Save to CSV
+csv_path = "/content/generated_phishing_mails.csv"
+df.to_csv(csv_path, index=False)
+
+print(f"Phishing mails have been generated and saved to '{csv_path}'")
+
+#save the model
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
+
+model = GPT2LMHeadModel.from_pretrained("gpt2")
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+model.save_pretrained("./fine_tuned_gpt_model")
+tokenizer.save_pretrained("./fine_tuned_gpt_tokenizer")
+print("Model and tokenizer saved successfully!")
+
